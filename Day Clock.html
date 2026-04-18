@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Day Clock</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --fg: rgba(255,255,255,0.96);
+    --fg-soft: rgba(255,255,255,0.72);
+    --fg-faint: rgba(255,255,255,0.42);
+
+    /* Device palette — Rams / Braun inspired, warm cream */
+    --body: #d9cdb6;
+    --body-hi: #e6dcc7;
+    --body-lo: #b8ac93;
+    --body-shadow: #8a7f6b;
+    --ink: #2b2722;
+    --ink-soft: #5b5348;
+    --label: #4a4339;
+    --accent: #c15a1a; /* single Braun orange accent, used sparingly */
+    --dial: #e9dfc9;
+    --dial-rim: #7a6f5c;
+    --screen-bezel: #1a1712;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #0a0a12;
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Full-viewport sky background */
+  .stage { position: fixed; inset: 0; overflow: hidden; }
+  .sky {
+    position: absolute; inset: 0;
+    background: var(--sky, linear-gradient(to bottom, #0a0a12, #0a0a12));
+    transition: background 1200ms cubic-bezier(.4,0,.2,1);
+  }
+  .sky::after {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 100% 35% at 50% 86%, var(--glow, rgba(255,230,180,0)), transparent 70%),
+      radial-gradient(ellipse 120% 40% at 50% -10%, rgba(255,255,255,0.04), transparent 70%);
+    pointer-events: none;
+    transition: background 1200ms cubic-bezier(.4,0,.2,1);
+  }
+
+  /* ==========================================================
+     DEVICE — centered, ~40% of min viewport axis.
+     Proportions tuned to feel like a Braun product: wider than
+     tall, with a recessed screen and a control deck below.
+     ========================================================== */
+  .device {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: clamp(520px, 56vmin, 900px);
+    aspect-ratio: 1.5 / 1;
+    background:
+      /* fine grain */
+      repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0 1px, transparent 1px 3px),
+      linear-gradient(180deg, var(--body-hi) 0%, var(--body) 40%, var(--body-lo) 100%);
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow:
+      /* inner highlight */
+      inset 0 1px 0 rgba(255,255,255,0.5),
+      inset 0 -1px 0 rgba(0,0,0,0.12),
+      /* outer drop */
+      0 30px 60px -20px rgba(0,0,0,0.45),
+      0 8px 18px -8px rgba(0,0,0,0.35),
+      0 1px 0 rgba(0,0,0,0.08);
+    display: grid;
+    grid-template-rows: 1fr auto;
+    gap: 18px;
+    color: var(--ink);
+    z-index: 3;
+  }
+
+  /* Brand plate — tiny etched label on top edge */
+  .brand {
+    position: absolute;
+    top: 7px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 8px;
+    letter-spacing: 0.38em;
+    font-weight: 500;
+    color: var(--label);
+    text-transform: uppercase;
+    opacity: 0.55;
+    white-space: nowrap;
+  }
+  .brand .mark {
+    display: inline-block;
+    width: 10px; height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+  .model {
+    position: absolute;
+    bottom: 6px; right: 22px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.14em;
+    color: var(--label);
+    opacity: 0.5;
+    white-space: nowrap;
+  }
+
+  /* SCREEN — recessed, holds the clock + timeline */
+  .screen {
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--screen-bezel);
+    box-shadow:
+      inset 0 2px 6px rgba(0,0,0,0.55),
+      inset 0 -1px 0 rgba(255,255,255,0.05),
+      0 1px 0 rgba(255,255,255,0.55);
+  }
+  .screen-inner {
+    position: absolute; inset: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--sky-inner, linear-gradient(to bottom, #0a0a12, #0a0a12));
+    transition: background 1200ms cubic-bezier(.4,0,.2,1);
+  }
+  .screen-inner::after {
+    content: '';
+    position: absolute; inset: 0;
+    /* Legibility overlay — dims the sky just enough so type stays readable
+       at any hour. A soft vertical gradient (stronger at top & bottom)
+       keeps the mid-screen sky luminous while framing the content. */
+    background:
+      linear-gradient(180deg,
+        rgba(0,0,0,0.32) 0%,
+        rgba(0,0,0,0.10) 18%,
+        rgba(0,0,0,0.00) 45%,
+        rgba(0,0,0,0.08) 72%,
+        rgba(0,0,0,0.38) 100%),
+      radial-gradient(ellipse 100% 35% at 50% 88%, var(--glow-inner, rgba(255,230,180,0)), transparent 70%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0 2px, transparent 2px 4px);
+    pointer-events: none;
+  }
+  /* Subtle glass reflection */
+  .screen::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 0; height: 42%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0) 80%);
+    pointer-events: none;
+    z-index: 3;
+    border-radius: 6px 6px 0 0;
+  }
+
+  /* Clock content inside screen — structured grid so header,
+     time, meta and timeline each get a reserved row that cannot
+     collide with its neighbor. */
+  .screen-content {
+    position: absolute; inset: 0;
+    display: grid;
+    grid-template-rows: auto 1fr auto auto;
+    row-gap: 6px;
+    padding: 18px 24px 16px;
+    color: var(--fg);
+    font-family: 'Inter', sans-serif;
+    z-index: 2;
+    /* Subtle text-shadow to guarantee legibility against any sky color */
+    text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+  }
+  .screen-topline {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--fg-soft);
+    font-weight: 500;
+    min-height: 14px;
+  }
+  .phase {
+    color: var(--fg);
+    letter-spacing: 0.24em;
+    font-weight: 500;
+  }
+  .time-wrap {
+    min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .time {
+    font-family: 'Inter', sans-serif;
+    font-weight: 300;
+    font-size: clamp(40px, 7.2vmin, 82px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    display: flex;
+    align-items: baseline;
+    gap: 0;
+  }
+  .time .colon {
+    display: inline-block;
+    transform: translateY(-0.08em);
+    opacity: 0.55;
+    padding: 0 0.04em;
+    animation: blink 2s ease-in-out infinite;
+  }
+  .time .ss {
+    font-size: 0.38em;
+    opacity: 0.55;
+    margin-left: 0.22em;
+    align-self: flex-start;
+    transform: translateY(0.25em);
+    letter-spacing: -0.02em;
+  }
+  .time .meridiem {
+    font-size: 0.18em;
+    opacity: 0.7;
+    margin-left: 0.5em;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    align-self: flex-start;
+    transform: translateY(0.9em);
+    font-weight: 500;
+  }
+  @keyframes blink {
+    0%, 50%, 100% { opacity: 0.55; }
+    25% { opacity: 0.2; }
+  }
+  .meta {
+    display: flex; justify-content: center; gap: 16px;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--fg-soft);
+    font-weight: 500;
+    min-height: 14px;
+    white-space: nowrap;
+  }
+  .meta > span { white-space: nowrap; }
+  .meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--fg-faint); align-self: center; }
+
+  /* Timeline strip inside screen — dedicated grid row, never overlaps */
+  .tl-wrap {
+    padding: 6px 2px 2px;
+  }
+  .tl {
+    position: relative;
+    height: 30px;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  .tl-strip {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 6px;
+    border-radius: 1px;
+    background: var(--strip, linear-gradient(to right, #222, #444));
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 -1px 0 rgba(0,0,0,0.35) inset;
+  }
+  .tl-ticks {
+    position: absolute; left: 0; right: 0; bottom: 8px; height: 12px;
+    pointer-events: none;
+  }
+  .tl-tick {
+    position: absolute;
+    bottom: 0;
+    transform: translateX(-50%);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 7px;
+    color: var(--fg-faint);
+    letter-spacing: 0.08em;
+    font-weight: 500;
+  }
+  .tl-tick::after {
+    content: '';
+    display: block;
+    margin: 2px auto 0;
+    width: 1px; height: 3px;
+    background: var(--fg-faint);
+  }
+  .tl-handle {
+    position: absolute;
+    top: 0; bottom: -2px;
+    width: 1px;
+    background: var(--fg);
+    transform: translateX(-0.5px);
+    pointer-events: none;
+  }
+  .tl-handle::before {
+    content: '';
+    position: absolute;
+    left: 50%; top: -3px;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--fg);
+    transform: translateX(-50%);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  }
+  /* Small "NOW" indicator line shows live time under the handle */
+  .tl-now {
+    position: absolute;
+    top: 2px; bottom: 6px;
+    width: 1px;
+    background: var(--accent);
+    opacity: 0.9;
+    pointer-events: none;
+    transform: translateX(-0.5px);
+  }
+
+  /* ==========================================================
+     CONTROL DECK — below the screen
+     layout: [ dial-A ] [ switches ] [ dial-B ] [ now button ]
+     ========================================================== */
+  .deck {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 18px;
+    padding: 2px 4px 0;
+    min-height: 92px;
+  }
+
+  .dial-wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .dial {
+    position: relative;
+    width: 74px; height: 74px;
+    border-radius: 50%;
+    background:
+      /* outer knurling hint */
+      repeating-conic-gradient(from 0deg,
+        rgba(0,0,0,0.10) 0 1.5deg,
+        rgba(255,255,255,0.10) 1.5deg 3deg),
+      radial-gradient(circle at 35% 30%, var(--dial) 0%, #d3c6ad 55%, #b0a287 100%);
+    box-shadow:
+      inset 0 2px 3px rgba(255,255,255,0.55),
+      inset 0 -3px 6px rgba(0,0,0,0.22),
+      0 2px 3px rgba(0,0,0,0.18),
+      0 8px 12px -6px rgba(0,0,0,0.25);
+    cursor: grab;
+    touch-action: none;
+  }
+  .dial::before {
+    /* inner smooth face */
+    content: '';
+    position: absolute; inset: 10px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #f1e6cd 0%, #d9ccb2 60%, #a79978 100%);
+    box-shadow:
+      inset 0 1px 2px rgba(255,255,255,0.6),
+      inset 0 -2px 3px rgba(0,0,0,0.18);
+  }
+  .dial-indicator {
+    position: absolute;
+    left: 50%; top: 8px;
+    width: 2px; height: 14px;
+    background: var(--ink);
+    transform-origin: 50% 28px; /* rotates around center of dial */
+    border-radius: 1px;
+    transform: translateX(-1px) rotate(0deg);
+    z-index: 2;
+  }
+  .dial:active { cursor: grabbing; }
+  .dial-label {
+    font-size: 8px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--label);
+    font-weight: 500;
+  }
+  .dial-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: var(--ink);
+    margin-top: -2px;
+    letter-spacing: 0.08em;
+  }
+
+  /* Switches — tiny vintage toggles */
+  .switches {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 0 6px;
+  }
+  .sw-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 8px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--label);
+    font-weight: 500;
+  }
+  .sw {
+    position: relative;
+    width: 34px; height: 16px;
+    background: linear-gradient(180deg, #a89c82, #c2b699);
+    border-radius: 3px;
+    box-shadow:
+      inset 0 1px 2px rgba(0,0,0,0.35),
+      inset 0 -1px 0 rgba(255,255,255,0.3);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .sw::after {
+    content: '';
+    position: absolute;
+    top: 1px; left: 1px;
+    width: 16px; height: 14px;
+    background: linear-gradient(180deg, #f1e6cd, #c8ba9c);
+    border-radius: 2px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    transition: left 180ms cubic-bezier(.4,0,.2,1);
+  }
+  .sw.on::after { left: 17px; }
+  .sw.on { background: linear-gradient(180deg, #b26a35, #c57a45); }
+  .sw-row .name { flex: 1; }
+
+  /* NOW button — small Braun-style pushbutton with orange cap */
+  .now-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    background: transparent; border: none; cursor: pointer;
+    font-family: inherit;
+    padding: 0;
+  }
+  .now-btn .cap {
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, #e67a3e 0%, var(--accent) 60%, #8c3b0f 100%);
+    box-shadow:
+      inset 0 2px 2px rgba(255,255,255,0.45),
+      inset 0 -3px 4px rgba(0,0,0,0.30),
+      0 3px 5px rgba(0,0,0,0.25),
+      0 8px 12px -6px rgba(0,0,0,0.3);
+    position: relative;
+    transition: transform 120ms, box-shadow 120ms;
+  }
+  .now-btn .cap::after {
+    content: '';
+    position: absolute; inset: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #f09263 0%, #c95a20 70%, #7f340f 100%);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.35);
+  }
+  .now-btn:active .cap {
+    transform: translateY(2px);
+    box-shadow:
+      inset 0 2px 3px rgba(0,0,0,0.25),
+      0 1px 2px rgba(0,0,0,0.2);
+  }
+  .now-btn.hidden { opacity: 0.35; pointer-events: none; }
+  .now-btn .tag {
+    font-size: 8px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--label);
+    font-weight: 500;
+  }
+
+  /* Tiny LED dot indicating "LIVE" vs "PREVIEW" */
+  .led {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 8px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--label);
+    font-weight: 500;
+  }
+  .led::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #2d6a2e;
+    box-shadow: 0 0 6px #55c257, inset 0 1px 1px rgba(255,255,255,0.4);
+  }
+  .led.preview::before {
+    background: var(--accent);
+    box-shadow: 0 0 6px #e07b3a, inset 0 1px 1px rgba(255,255,255,0.4);
+  }
+
+  /* Faceplate score lines — decorative grooves */
+  .score {
+    position: absolute;
+    left: 22px; right: 22px;
+    height: 1px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.12), rgba(255,255,255,0.5));
+    box-shadow: 0 1px 0 rgba(255,255,255,0.5);
+    pointer-events: none;
+  }
+
+
+  @media (max-width: 720px) {
+    .device { width: 92vw; aspect-ratio: 1.45 / 1; padding: 16px; }
+    .deck { gap: 10px; grid-template-columns: auto 1fr auto; }
+    .now-btn { grid-column: 1 / -1; flex-direction: row; gap: 12px; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="sky" id="sky"></div>
+
+  <div class="device" role="group" aria-label="Day Clock">
+    <div class="brand"><span class="mark"></span><span>DAY CLOCK · DC–24</span></div>
+
+    <!-- SCREEN -->
+    <div class="screen">
+      <div class="screen-inner" id="screenInner"></div>
+      <div class="screen-content">
+        <div class="screen-topline">
+          <span class="led" id="led">LIVE</span>
+          <span class="phase" id="phaseName">Morning</span>
+        </div>
+
+        <div class="time-wrap">
+          <div class="time" id="time">
+            <span id="hh">00</span><span class="colon">:</span><span id="mm">00</span>
+          </div>
+        </div>
+
+        <div class="meta">
+          <span id="weekday">SUNDAY</span>
+          <span class="dot"></span>
+          <span id="date">— —</span>
+        </div>
+
+        <div class="tl-wrap">
+          <div class="tl" id="tl">
+            <div class="tl-ticks" id="tlTicks"></div>
+            <div class="tl-strip" id="tlStrip"></div>
+            <div class="tl-now" id="tlNow" style="left:50%"></div>
+            <div class="tl-handle" id="tlHandle" style="left:50%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTROL DECK -->
+    <div class="deck">
+      <div class="dial-wrap" title="Palette — drag or click to change">
+        <div class="dial" id="dialPalette" role="slider" aria-label="Palette" tabindex="0">
+          <div class="dial-indicator" id="dialPaletteInd"></div>
+        </div>
+        <div class="dial-label">Palette</div>
+        <div class="dial-value" id="dialPaletteVal">CLASSIC</div>
+      </div>
+
+      <div class="switches">
+        <div class="sw-row">
+          <span class="sw" id="swFormat" role="switch" aria-label="24h format"></span>
+          <span class="name">24-Hour</span>
+        </div>
+        <div class="sw-row">
+          <span class="sw" id="swSeconds" role="switch" aria-label="Show seconds"></span>
+          <span class="name">Seconds</span>
+        </div>
+      </div>
+
+      <div class="dial-wrap" title="Sky depth — drag to change">
+        <div class="dial" id="dialDepth" role="slider" aria-label="Sky depth" tabindex="0">
+          <div class="dial-indicator" id="dialDepthInd"></div>
+        </div>
+        <div class="dial-label">Depth</div>
+        <div class="dial-value" id="dialDepthVal">55</div>
+      </div>
+
+      <button class="now-btn" id="nowBtn" aria-label="Return to current time">
+        <span class="cap"></span>
+        <span class="tag">Now</span>
+      </button>
+    </div>
+
+    <div class="model">DC–24 · DAY CLOCK · MADE FOR LIGHT</div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   TWEAK DEFAULTS (persisted)
+   ================================================================ */
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "palette": "classic",
+  "format": "12",
+  "intensity": 120,
+  "depth": 93,
+  "showSeconds": false
+}/*EDITMODE-END*/;
+
+let settings = { ...TWEAK_DEFAULTS };
+let scrubMinutes = null;
+
+/* Ordered palette list for dial */
+const PALETTE_ORDER = ['classic','desert','northern','tropical','monochrome'];
+const PALETTE_LABELS = {
+  classic:'CLASSIC', desert:'DESERT', northern:'NORTHERN',
+  tropical:'TROPICAL', monochrome:'MONO'
+};
+
+/* ================================================================
+   PALETTES — same as before
+   ================================================================ */
+const PALETTES = {
+  classic: [
+    { h: 0.0,  c: '#0b1026', phase: 'Deep night' },
+    { h: 3.0,  c: '#111736', phase: 'Late night' },
+    { h: 5.0,  c: '#2a2a52', phase: 'Pre-dawn' },
+    { h: 6.0,  c: '#6b4e7d', phase: 'Blue hour' },
+    { h: 6.7,  c: '#d98a6b', phase: 'Sunrise' },
+    { h: 7.5,  c: '#f4c38a', phase: 'Early light' },
+    { h: 9.0,  c: '#c8d9e6', phase: 'Morning' },
+    { h: 11.0, c: '#a8c8e0', phase: 'Late morning' },
+    { h: 12.5, c: '#9cbde0', phase: 'Midday' },
+    { h: 14.5, c: '#a8c4de', phase: 'Afternoon' },
+    { h: 16.5, c: '#d8c8b0', phase: 'Late afternoon' },
+    { h: 17.5, c: '#e8a874' },
+    { h: 18.2, c: '#e8744c', phase: 'Golden hour' },
+    { h: 18.8, c: '#c84a5e', phase: 'Sunset' },
+    { h: 19.5, c: '#6b3a6e', phase: 'Dusk' },
+    { h: 20.5, c: '#2e2850', phase: 'Twilight' },
+    { h: 22.0, c: '#141838', phase: 'Night' },
+    { h: 24.0, c: '#0b1026', phase: 'Deep night' }
+  ],
+  desert: [
+    { h: 0.0,  c: '#1a1030', phase: 'Night' },
+    { h: 5.0,  c: '#3a2a58' },
+    { h: 6.5,  c: '#c26a5c', phase: 'Sunrise' },
+    { h: 8.0,  c: '#f0b878' },
+    { h: 10.0, c: '#e8d4a0', phase: 'Morning heat' },
+    { h: 13.0, c: '#f2e2b8', phase: 'Midday' },
+    { h: 16.0, c: '#e8c080', phase: 'Long shadow' },
+    { h: 18.0, c: '#d8622c', phase: 'Sunset' },
+    { h: 19.0, c: '#8c2a4a' },
+    { h: 20.0, c: '#3a1840', phase: 'Dusk' },
+    { h: 22.0, c: '#1a0f2c', phase: 'Night' },
+    { h: 24.0, c: '#1a1030' }
+  ],
+  northern: [
+    { h: 0.0,  c: '#0a1840', phase: 'Aurora night' },
+    { h: 4.0,  c: '#0f2c52' },
+    { h: 7.0,  c: '#5a7090', phase: 'Cold dawn' },
+    { h: 9.0,  c: '#a8b8c8' },
+    { h: 12.0, c: '#c8d0d8', phase: 'Pale day' },
+    { h: 15.0, c: '#b8a8a0' },
+    { h: 16.5, c: '#a07060', phase: 'Arctic sunset' },
+    { h: 18.0, c: '#4a3858', phase: 'Polar dusk' },
+    { h: 20.0, c: '#1c2850', phase: 'Aurora' },
+    { h: 24.0, c: '#0a1840' }
+  ],
+  tropical: [
+    { h: 0.0,  c: '#0a1a3a', phase: 'Warm night' },
+    { h: 5.5,  c: '#3a3870' },
+    { h: 6.5,  c: '#e89c7a', phase: 'Sunrise' },
+    { h: 8.0,  c: '#8cc8e0', phase: 'Morning sea' },
+    { h: 11.0, c: '#6ab4d8' },
+    { h: 13.0, c: '#4a9cc8', phase: 'Midday' },
+    { h: 16.0, c: '#78b8d0' },
+    { h: 18.0, c: '#f06c5c', phase: 'Sunset' },
+    { h: 19.0, c: '#a8385e' },
+    { h: 20.5, c: '#3a2058', phase: 'Dusk' },
+    { h: 22.5, c: '#142048' },
+    { h: 24.0, c: '#0a1a3a' }
+  ],
+  monochrome: [
+    { h: 0.0,  c: '#0a0a0e', phase: 'Night' },
+    { h: 6.0,  c: '#2a2a30', phase: 'Dawn' },
+    { h: 9.0,  c: '#6a6a70' },
+    { h: 12.0, c: '#c8c8ce', phase: 'Midday' },
+    { h: 15.0, c: '#a0a0a6' },
+    { h: 18.0, c: '#5a5a60', phase: 'Dusk' },
+    { h: 21.0, c: '#2a2a30' },
+    { h: 24.0, c: '#0a0a0e' }
+  ]
+};
+
+const PHASE_SUBS = {
+  'Deep night':'stars overhead','Late night':'quiet hours','Pre-dawn':'first light',
+  'Blue hour':'the world exhales','Sunrise':'horizon ignites','Early light':'soft gold',
+  'Morning':'cool and clear','Late morning':'high sky','Midday':'sun at zenith',
+  'Afternoon':'long warm hours','Late afternoon':'shadows lengthen','Golden hour':'honeyed light',
+  'Sunset':'sky on fire','Dusk':'colors fade','Twilight':'indigo settles','Night':'all is quiet'
+};
+
+/* ================================================================
+   COLOR UTILS
+   ================================================================ */
+function hexToRgb(hex){hex=hex.replace('#','');if(hex.length===3)hex=hex.split('').map(c=>c+c).join('');return[parseInt(hex.slice(0,2),16)/255,parseInt(hex.slice(2,4),16)/255,parseInt(hex.slice(4,6),16)/255];}
+function srgbToLinear(c){return c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4);}
+function linearToSrgb(c){return c<=0.0031308?12.92*c:1.055*Math.pow(c,1/2.4)-0.055;}
+function rgbToOklab([r,g,b]){r=srgbToLinear(r);g=srgbToLinear(g);b=srgbToLinear(b);const l=0.4122214708*r+0.5363325363*g+0.0514459929*b;const m=0.2119034982*r+0.6806995451*g+0.1073969566*b;const s=0.0883024619*r+0.2817188376*g+0.6299787005*b;const l_=Math.cbrt(l),m_=Math.cbrt(m),s_=Math.cbrt(s);return[0.2104542553*l_+0.7936177850*m_-0.0040720468*s_,1.9779984951*l_-2.4285922050*m_+0.4505937099*s_,0.0259040371*l_+0.7827717662*m_-0.8086757660*s_];}
+function oklabToRgb([L,a,b]){const l_=L+0.3963377774*a+0.2158037573*b;const m_=L-0.1055613458*a-0.0638541728*b;const s_=L-0.0894841775*a-1.2914855480*b;const l=l_*l_*l_,m=m_*m_*m_,s=s_*s_*s_;let r=4.0767416621*l-3.3077115913*m+0.2309699292*s;let g=-1.2684380046*l+2.6097574011*m-0.3413193965*s;let bl=-0.0041960863*l-0.7034186147*m+1.7076147010*s;return[Math.max(0,Math.min(1,linearToSrgb(r))),Math.max(0,Math.min(1,linearToSrgb(g))),Math.max(0,Math.min(1,linearToSrgb(bl)))];}
+const lerp=(a,b,t)=>a+(b-a)*t;
+function mixOklab(c1,c2,t){const o1=rgbToOklab(hexToRgb(c1));const o2=rgbToOklab(hexToRgb(c2));return oklabToRgb([lerp(o1[0],o2[0],t),lerp(o1[1],o2[1],t),lerp(o1[2],o2[2],t)]);}
+const rgbToCss=([r,g,b])=>`rgb(${Math.round(r*255)}, ${Math.round(g*255)}, ${Math.round(b*255)})`;
+
+function colorAtHour(stops,hour){hour=((hour%24)+24)%24;for(let i=0;i<stops.length-1;i++){const a=stops[i],b=stops[i+1];if(hour>=a.h&&hour<=b.h){const t=(hour-a.h)/(b.h-a.h);const tt=t*t*(3-2*t);return mixOklab(a.c,b.c,tt);}}return hexToRgb(stops[stops.length-1].c);}
+
+function applyIntensity(rgb,k){const lab=rgbToOklab(rgb);const cx=lab[1]*k,cy=lab[2]*k;const L=0.5+(lab[0]-0.5)*Math.min(1.2,k);return oklabToRgb([L,cx,cy]);}
+
+/* ================================================================
+   VERTICAL SKY (shared by outer bg + inner screen)
+   ================================================================ */
+function twilightBoost(h){const d1=Math.min(Math.abs(h-6.5),Math.abs(h-6.5+24));const d2=Math.min(Math.abs(h-18.5),Math.abs(h-18.5-24));const d=Math.min(d1,d2);return Math.max(0,1-Math.max(0,d-0.3)/3.2);}
+
+function verticalSkyStops(key,hour,intensity){
+  const stops=PALETTES[key];
+  const boost=twilightBoost(hour);
+  const baseOffset=0.45;
+  const offset=baseOffset+boost*1.1;
+  const preNoon=hour<12;
+  const topHour=preNoon?hour-offset:hour+offset;
+  const botHour=preNoon?hour+offset:hour-offset;
+  let top=colorAtHour(stops,topHour);
+  let mid=colorAtHour(stops,hour);
+  let bottom=colorAtHour(stops,botHour);
+  if(boost>0.05){const l=rgbToOklab(bottom);l[0]=Math.min(1,l[0]+0.04*boost);l[1]+=0.015*boost;l[2]+=0.01*boost;bottom=oklabToRgb(l);}
+  if(intensity!==1){top=applyIntensity(top,intensity);mid=applyIntensity(mid,intensity);bottom=applyIntensity(bottom,intensity);}
+  return {top,mid,bottom,boost};
+}
+function buildSky(key,hour,intensity,depth){
+  const {top,mid,bottom,boost}=verticalSkyStops(key,hour,intensity);
+  const d=depth/100;
+  const topMix=[lerp(mid[0],top[0],d),lerp(mid[1],top[1],d),lerp(mid[2],top[2],d)];
+  const botMix=[lerp(mid[0],bottom[0],d),lerp(mid[1],bottom[1],d),lerp(mid[2],bottom[2],d)];
+  const glowAlpha=Math.min(0.45,0.08+boost*0.35);
+  const gl=rgbToOklab(botMix);gl[0]=Math.min(1,gl[0]+0.06);gl[1]+=0.02;gl[2]+=0.015;
+  const glowRgb=oklabToRgb(gl);
+  const glowCss=`rgba(${Math.round(glowRgb[0]*255)}, ${Math.round(glowRgb[1]*255)}, ${Math.round(glowRgb[2]*255)}, ${glowAlpha.toFixed(3)})`;
+  const g=`linear-gradient(to bottom,
+    ${rgbToCss(topMix)} 0%,
+    ${rgbToCss([lerp(topMix[0],mid[0],0.5),lerp(topMix[1],mid[1],0.5),lerp(topMix[2],mid[2],0.5)])} 32%,
+    ${rgbToCss(mid)} 62%,
+    ${rgbToCss([lerp(mid[0],botMix[0],0.65),lerp(mid[1],botMix[1],0.65),lerp(mid[2],botMix[2],0.65)])} 85%,
+    ${rgbToCss(botMix)} 100%)`;
+  return {gradient:g,mid,glowCss};
+}
+
+/* ================================================================
+   TIMELINE STRIP + TICKS (inside screen)
+   ================================================================ */
+function buildStripGradient(key,intensity){
+  const stops=PALETTES[key];const samples=36;const parts=[];
+  for(let i=0;i<=samples;i++){const h=(i/samples)*24;let c=colorAtHour(stops,h);if(intensity!==1)c=applyIntensity(c,intensity);parts.push(`${rgbToCss(c)} ${((i/samples)*100).toFixed(2)}%`);}
+  return `linear-gradient(to right, ${parts.join(', ')})`;
+}
+function buildTlTicks(){
+  const wrap=document.getElementById('tlTicks');wrap.innerHTML='';
+  const fmt=settings.format;
+  for(let h=0;h<=24;h+=6){
+    const el=document.createElement('div');el.className='tl-tick';
+    let label;
+    if(fmt==='24')label=String(h%24).padStart(2,'0');
+    else{const hm=h%24;const h12=hm===0?12:hm>12?hm-12:hm;const ap=hm<12||hm===0?'a':'p';label=h12+ap;}
+    el.textContent=label;el.style.left=`${(h/24)*100}%`;
+    if(h===0)el.style.transform='translateX(0)';
+    if(h===24)el.style.transform='translateX(-100%)';
+    wrap.appendChild(el);
+  }
+}
+
+/* ================================================================
+   PHASE LOOKUP
+   ================================================================ */
+function phaseAtHour(key,hour){const stops=PALETTES[key].filter(s=>s.phase);hour=((hour%24)+24)%24;let best=stops[0];for(const s of stops)if(s.h<=hour)best=s;return best?best.phase:'—';}
+
+/* ================================================================
+   RENDER
+   ================================================================ */
+function currentDate(){const d=new Date();if(scrubMinutes!==null){d.setHours(Math.floor(scrubMinutes/60),Math.floor(scrubMinutes%60),Math.floor((scrubMinutes*60)%60),0);}return d;}
+function fmtTime(d){const H=d.getHours(),M=d.getMinutes(),S=d.getSeconds();let hh,ampm;if(settings.format==='24'){hh=String(H).padStart(2,'0');ampm='';}else{const h12=H===0?12:H>12?H-12:H;hh=String(h12);ampm=H<12?'AM':'PM';}return{hh,mm:String(M).padStart(2,'0'),ss:String(S).padStart(2,'0'),ampm,H,M,S};}
+const WEEKDAYS=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const MONTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+function render(){
+  const d=currentDate();const t=fmtTime(d);
+  const hourFrac=d.getHours()+d.getMinutes()/60+d.getSeconds()/3600;
+  const pct=(hourFrac/24)*100;
+
+  // Time
+  const te=document.getElementById('time');
+  let html=`<span>${t.hh}</span><span class="colon">:</span><span>${t.mm}</span>`;
+  if(settings.showSeconds) html+=`<span class="ss">${t.ss}</span>`;
+  if(settings.format==='12') html+=`<span class="meridiem">${t.ampm}</span>`;
+  te.innerHTML=html;
+
+  document.getElementById('weekday').textContent=WEEKDAYS[d.getDay()];
+  document.getElementById('date').textContent=`${MONTHS[d.getMonth()]} ${String(d.getDate()).padStart(2,'0')}`;
+
+  // Sky — inner screen + outer bg (both share look, outer is the room)
+  const sky=buildSky(settings.palette,hourFrac,settings.intensity/100,settings.depth);
+  document.getElementById('sky').style.setProperty('--sky',sky.gradient);
+  document.getElementById('sky').style.setProperty('--glow',sky.glowCss);
+  document.getElementById('screenInner').style.setProperty('--sky-inner',sky.gradient);
+  document.getElementById('screenInner').style.setProperty('--glow-inner',sky.glowCss);
+
+  // Timeline handle + live marker
+  document.getElementById('tlHandle').style.left=pct+'%';
+  // live "now" tick inside timeline always reflects real time
+  const now=new Date();
+  const livePct=((now.getHours()+now.getMinutes()/60+now.getSeconds()/3600)/24)*100;
+  document.getElementById('tlNow').style.left=livePct+'%';
+  document.getElementById('tlNow').style.opacity = scrubMinutes===null ? '0' : '0.9';
+
+  // Phase
+  const phase=phaseAtHour(settings.palette,hourFrac);
+  document.getElementById('phaseName').textContent=phase;
+
+  // LED state
+  const led=document.getElementById('led');
+  led.classList.toggle('preview',scrubMinutes!==null);
+  led.textContent=scrubMinutes!==null?'PREVIEW':'LIVE';
+
+  // Now button visibility
+  document.getElementById('nowBtn').classList.toggle('hidden',scrubMinutes===null);
+}
+
+function rebuildStrip(){
+  document.getElementById('tlStrip').style.background=buildStripGradient(settings.palette,settings.intensity/100);
+}
+
+/* ================================================================
+   TIMELINE SCRUB
+   ================================================================ */
+const tl=document.getElementById('tl');let dragging=false;
+function pctFromEvent(e){const r=tl.getBoundingClientRect();const x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;return Math.max(0,Math.min(1,x/r.width));}
+function scrubTo(p){scrubMinutes=p*24*60;render();}
+function onTlDown(e){e.preventDefault();dragging=true;scrubTo(pctFromEvent(e));window.addEventListener('pointermove',onTlMove);window.addEventListener('pointerup',onTlUp);}
+function onTlMove(e){if(!dragging)return;scrubTo(pctFromEvent(e));}
+function onTlUp(){dragging=false;window.removeEventListener('pointermove',onTlMove);window.removeEventListener('pointerup',onTlUp);}
+tl.addEventListener('pointerdown',onTlDown);
+
+window.addEventListener('keydown',(e)=>{
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    if(document.activeElement&&document.activeElement.tagName==='INPUT')return;
+    e.preventDefault();
+    const step=(e.shiftKey?30:5)*(e.key==='ArrowLeft'?-1:1);
+    const d=currentDate();
+    const base=scrubMinutes!==null?scrubMinutes:d.getHours()*60+d.getMinutes();
+    scrubMinutes=((base+step)%1440+1440)%1440;
+    render();
+  } else if(e.key==='Escape'||e.key.toLowerCase()==='n'){returnToNow();}
+});
+
+function returnToNow(){scrubMinutes=null;render();}
+document.getElementById('nowBtn').addEventListener('click',returnToNow);
+
+/* ================================================================
+   DIALS — drag vertically to change
+   dialPalette: discrete, 5 positions, rotation −120°..+120°
+   dialDepth:   continuous 0..100, rotation −135°..+135°
+   ================================================================ */
+function setDialRotation(el, deg){ el.style.transform = `translateX(-1px) rotate(${deg}deg)`; }
+
+function updatePaletteDial(){
+  const idx = PALETTE_ORDER.indexOf(settings.palette);
+  const t = idx / (PALETTE_ORDER.length-1);
+  const deg = -120 + t * 240;
+  setDialRotation(document.getElementById('dialPaletteInd'), deg);
+  document.getElementById('dialPaletteVal').textContent = PALETTE_LABELS[settings.palette];
+}
+function updateDepthDial(){
+  const t = settings.depth / 100;
+  const deg = -135 + t * 270;
+  setDialRotation(document.getElementById('dialDepthInd'), deg);
+  document.getElementById('dialDepthVal').textContent = String(Math.round(settings.depth));
+}
+
+function attachDialDrag(el, onDelta){
+  let startY=null, active=false;
+  el.addEventListener('pointerdown', (e)=>{
+    e.preventDefault();
+    active=true; startY=e.clientY;
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove', (e)=>{
+    if(!active) return;
+    const dy = startY - e.clientY; // up = positive
+    onDelta(dy, e);
+  });
+  const end = (e)=>{ active=false; startY=null; };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+}
+
+// Palette dial: each 40px of drag = +1 step; also click to advance.
+let _palBaseIdx = 0;
+attachDialDrag(document.getElementById('dialPalette'), (dy, e)=>{
+  const steps = Math.round(dy / 40);
+  const next = Math.max(0, Math.min(PALETTE_ORDER.length-1, _palBaseIdx + steps));
+  if (PALETTE_ORDER[next] !== settings.palette){
+    setSetting('palette', PALETTE_ORDER[next]);
+  }
+});
+document.getElementById('dialPalette').addEventListener('pointerdown', ()=>{ _palBaseIdx = PALETTE_ORDER.indexOf(settings.palette); });
+document.getElementById('dialPalette').addEventListener('click', (e)=>{
+  // click without drag advances
+  if(e.detail===0) return;
+  const idx = (PALETTE_ORDER.indexOf(settings.palette)+1) % PALETTE_ORDER.length;
+  setSetting('palette', PALETTE_ORDER[idx]);
+});
+document.getElementById('dialPalette').addEventListener('keydown',(e)=>{
+  if(e.key==='ArrowUp'||e.key==='ArrowRight'){e.preventDefault();const i=(PALETTE_ORDER.indexOf(settings.palette)+1)%PALETTE_ORDER.length;setSetting('palette',PALETTE_ORDER[i]);}
+  if(e.key==='ArrowDown'||e.key==='ArrowLeft'){e.preventDefault();const i=(PALETTE_ORDER.indexOf(settings.palette)-1+PALETTE_ORDER.length)%PALETTE_ORDER.length;setSetting('palette',PALETTE_ORDER[i]);}
+});
+
+// Depth dial: drag up/down = +/-; 200px full range
+let _depthBase = 0;
+attachDialDrag(document.getElementById('dialDepth'), (dy)=>{
+  const next = Math.max(0, Math.min(100, _depthBase + dy * 0.6));
+  if (Math.round(next) !== settings.depth) setSetting('depth', Math.round(next));
+});
+document.getElementById('dialDepth').addEventListener('pointerdown', ()=>{ _depthBase = settings.depth; });
+document.getElementById('dialDepth').addEventListener('keydown',(e)=>{
+  if(e.key==='ArrowUp'||e.key==='ArrowRight'){e.preventDefault();setSetting('depth',Math.min(100,settings.depth+5));}
+  if(e.key==='ArrowDown'||e.key==='ArrowLeft'){e.preventDefault();setSetting('depth',Math.max(0,settings.depth-5));}
+});
+
+/* ================================================================
+   SWITCHES
+   ================================================================ */
+function renderSwitches(){
+  document.getElementById('swFormat').classList.toggle('on', settings.format==='24');
+  document.getElementById('swSeconds').classList.toggle('on', !!settings.showSeconds);
+}
+document.getElementById('swFormat').addEventListener('click', ()=>{
+  setSetting('format', settings.format==='24'?'12':'24');
+});
+document.getElementById('swSeconds').addEventListener('click', ()=>{
+  setSetting('showSeconds', !settings.showSeconds);
+});
+
+/* ================================================================
+   SETTING SETTER — persists to disk via edit-mode; no floating UI.
+   ================================================================ */
+function setSetting(k,v){
+  settings[k]=v;
+  window.parent.postMessage({type:'__edit_mode_set_keys',edits:{[k]:v}},'*');
+  rebuildStrip(); buildTlTicks();
+  updatePaletteDial(); updateDepthDial(); renderSwitches();
+  render();
+}
+function renderTweaks(){} // kept as no-op for any stray callers
+
+/* ================================================================
+   BOOT
+   ================================================================ */
+rebuildStrip(); buildTlTicks();
+updatePaletteDial(); updateDepthDial(); renderSwitches(); renderTweaks();
+render();
+setInterval(()=>render(),1000);
+</script>
+</body>
+</html>
